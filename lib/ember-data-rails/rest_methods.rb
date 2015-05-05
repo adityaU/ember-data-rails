@@ -4,28 +4,21 @@ require_relative './serializer'
 module EmberDataRailsHelper
   include EmberDataSerializer
   # def selfV.included klass
-  #   klass.instance_eval do 
+  #   klass.instance_eval do
   #     include ::WillPaginate
   #   end
-  #   
+  #
   # end
-  def camelize_keys(resource)
-    # recursively camilize the keys of any hash.
-    # including Array of hashes as well
-    return resource if !resource.is_a?(Array) and !resource.is_a?(Hash)
-    keys = resource.is_a?(Array) ? resource.first.is_a?(Hash) ? resource.first.keys : [] : resource.keys
-    keys.each do |k|
-      new_key = k.to_s.camelize(:lower)
-      new_key = new_key.to_sym if k.is_a? Symbol
-      if resource.is_a? Array
-        resource.each  do |r|
-         r[new_key] = r.delete(k)
-        end
-      else
-        resource[new_key] = resource.delete(k)
-      end
+
+  def camelize_keys(value)
+    case value
+    when Array
+      value.map { |v| camelize_keys(v) }
+    when Hash
+      Hash[value.map { |k, v| [k.to_s.camelize(:lower), (!@modelClass.nil? and  @modelClass.not_camelizable.include?(k.to_sym)) ? v : camelize_keys(v)] }]
+    else
+      value
     end
-    resource
   end
 
   def save_model(modelClass,modelObj, obj)
@@ -35,11 +28,12 @@ module EmberDataRailsHelper
     additional_keys = relationships(modelClass)
     obj.each do |key, value|
       key = key.underscore
-
       if modelClass.attribute_names.include? key
         modelObj.send(key + '=', value)
       elsif additional_keys.keys.map(&:to_s).include? key
-        modelObj.send(additional_keys[key.to_sym].to_s + '=', value)
+        if !modelClass.ignore_update_for.include?(key.to_sym)
+          modelObj.send(additional_keys[key.to_sym].to_s + '=', value)
+        end
       end
     end
     modelObj.save
@@ -109,6 +103,7 @@ module EmberDataRailsHelper
     else
       model = @model.model
     end
+    @modelClass = @model
     _where = where_hash(model)
     _order = order_hash(model)
     resource = @model.where(_where).preload(model.reflections.keys).order(_order)
@@ -129,6 +124,7 @@ module EmberDataRailsHelper
     else
       model = @model.model
     end
+    @modelClass = @model
     _where = where_hash(model)
     resource = model.where(_where).preload(model.reflections.keys).find(params[:id])
     render :json => {resource_name.singularize => camelize_keys(ember_serialize(resource))}
@@ -147,9 +143,10 @@ module EmberDataRailsHelper
     else
       model = @model
     end
-    @model = model.find_by_id(params[:id])
+    @model = model.find_by_id(params[:id].to_i)
     obj = params[model.to_s.camelize(:lower)]
     @model = save_model(model, @model, obj)
+    @modelClass = @model.class
     render json:  {resource_name.singularize => camelize_keys(ember_serialize(@model))}
   end
 
@@ -163,11 +160,12 @@ module EmberDataRailsHelper
     unless @model
       model = class_eval(resource_name.singularize.camelize)
     else
-      model=@model
+      model= @model
     end
     @model = model.new
     obj = params[model.to_s.camelize(:lower)]
     @model = save_model(model, @model, obj)
+    @modelClass = @model.class
     render json:  {resource_name.singularize => camelize_keys(ember_serialize(@model))}
   end
 
@@ -178,8 +176,13 @@ module EmberDataRailsHelper
     else
       model=@model
     end
-    record = model.find_by_id(params[:id])
+    record = model.find_by_id(params[:id].to_i)
     model.delete(record)
+    @modelClass = @model.class
     render json:  {resource_name.singularize => camelize_keys(ember_serialize(record))}
+  end
+
+  def permit_params model
+    @model.require(resource_name.singularize.to_sym).permit(attribute_names)
   end
 end

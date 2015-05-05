@@ -1,4 +1,6 @@
+require_relative './activerecord_base'
 module EmberDataSerializer
+
 	def relationships(model_class)
     model_class.reflections.inject({}) do |result, ref|
 			case ref[1].macro
@@ -16,11 +18,8 @@ module EmberDataSerializer
 	def ember_serialize(resource)
 		if resource.respond_to?(:model)
 			resource.map {|r| ember_serialize(r)}
-		else
-			model_relationships = relationships(resource.class)
-			model_relationships.inject(resource.attributes) do |r, k|
-				r.merge!({k.first.to_sym => resource.send(k.last)})
-			end
+    else
+      relationships(resource.class).inject(resource.attributes) {|r, k| r.merge!({k.first.to_sym => resource.send(k.last)}) }
 		end
 	end
 end
